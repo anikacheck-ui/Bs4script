@@ -1,41 +1,41 @@
 """
 ====================================================================
-PROJECT: HBX CyberVault Automated Auth & Scraping Script
+PROJECT: HBX CyberVault Cloudscraper Automated Auth & Scraping Script
 AUTHOR: Developer Hridoy
-DESCRIPTION: Iterates through test credentials, handles dynamic CSRF 
-             tokens, validates login, and scrapes secret vault data.
+DESCRIPTION: Uses cloudscraper to bypass InfinityFree anti-bot, iterates 
+             through credentials, handles CSRF, and extracts vault data.
 ====================================================================
 """
 
-import requests
+import cloudscraper
 from bs4 import BeautifulSoup
 
-# Target Deployed URL
+# Target Deployed URL (InfinityFree / 42web)
 TARGET_URL = "https://hbxcybervault.42web.io/"
 
-# Test Credentials List (Wrong ones first, correct one at the end or middle)
+# Test Credentials List (Wrong ones first, correct one at the end)
 CREDENTIALS_LIST = [
     {"username": "admin", "password": "WrongPassword123"},
     {"username": "root", "password": "SecretPassword@2026"},
-    {"username": "admin", "password": "HBX@2026#Secure"}  # Valid one
+    {"username": "admin", "password": "HBX@2026#Secure"}  # Valid credentials
 ]
 
 def run_vault_automation():
-    print("[*] Starting HBX CyberVault Automated Testing...")
+    print("[*] Starting HBX CyberVault Cloudscraper Automated Testing...")
     
-    valid_session = None
+    valid_scraper = None
     successful_cred = None
 
     # Step 1: Loop through each credential pair
     for idx, cred in enumerate(CREDENTIALS_LIST, 1):
         print(f"\n--- Attempt #{idx}: Testing Username '{cred['username']}' ---")
         
-        # Create a fresh session for each attempt to maintain clean cookies/state
-        session = requests.Session()
+        # Create a fresh cloudscraper instance for each attempt to bypass anti-bot & maintain cookies
+        scraper = cloudscraper.create_scraper()
 
         try:
-            # GET login page to fetch the dynamic CSRF token
-            response = session.get(TARGET_URL)
+            # GET login page to fetch the dynamic CSRF token and pass JS challenge
+            response = scraper.get(TARGET_URL, timeout=15)
             if response.status_code != 200:
                 print(f"[-] Failed to reach target page. Status: {response.status_code}")
                 continue
@@ -47,39 +47,34 @@ def run_vault_automation():
             csrf_token = csrf_input.get('value') if csrf_input else ""
             print(f"[+] Dynamic CSRF Token Extracted: {csrf_token[:15]}...")
 
-            # Prepare POST payload
+            # Prepare POST payload with username, password, and token
             payload = {
                 'username': cred['username'],
                 'password': cred['password'],
                 'csrf_token': csrf_token
             }
 
-            # Submit login request
-            login_response = session.post(TARGET_URL, data=payload, allow_redirects=True)
+            # Submit login request using cloudscraper (POST)
+            login_response = scraper.post(TARGET_URL, data=payload, allow_redirects=True)
 
-            # Check if login succeeded (e.g., dashboard elements or vault table found in response)
-            if "cyber-vault-table" in login_response.text or "Vault" in login_response.text or login_response.status_code == 200:
-                # Double check if it's actually logged in by checking page content or url
-                # Since it's a single-page app with JS view toggle, let's verify if response contains vault data or success indicator
-                if "Confidential" in login_response.text or "Asset" in login_response.text:
-                    print(f"[+] 🎉 SUCCESS! Valid Credentials Found -> User: {cred['username']} / Pass: {cred['password']}")
-                    valid_session = session
-                    successful_cred = cred
-                    break
-                else:
-                    print(f"[-] ❌ Invalid credentials or authentication rejected.")
+            # Check if login succeeded by checking response content for vault indicators
+            if "Confidential" in login_response.text or "Asset" in login_response.text or "cyber-vault-table" in login_response.text:
+                print(f"[+] 🎉 SUCCESS! Valid Credentials Found -> User: {cred['username']} / Pass: {cred['password']}")
+                valid_scraper = scraper
+                successful_cred = cred
+                break
             else:
-                print(f"[-] ❌ Login failed for {cred['username']}.")
+                print(f"[-] ❌ Invalid credentials or authentication rejected.")
 
         except Exception as err:
             print(f"[-] Error during request: {err}")
 
-    # Step 2: If valid session found, proceed to scrape the secret vault data using BS4
-    if valid_session and successful_cred:
+    # Step 2: If valid session/scraper found, proceed to scrape the secret vault data
+    if valid_scraper and successful_cred:
         print("\n================ ACQUIRING SECRET VAULT DATA ================")
         try:
-            # Fetch dashboard / main page content with active authenticated session
-            dash_res = valid_session.get(TARGET_URL)
+            # Fetch the authenticated page content
+            dash_res = valid_scraper.get(TARGET_URL, timeout=15)
             dash_soup = BeautifulSoup(dash_res.text, 'html.parser')
 
             vault_table = dash_soup.find('table', {'id': 'cyber-vault-table'})
